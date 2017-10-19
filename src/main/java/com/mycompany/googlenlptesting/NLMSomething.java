@@ -24,6 +24,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  *
@@ -31,6 +33,7 @@ import java.util.List;
  * set GCLOUD_PROJECT=
  * set GOOGLE_APPLICATION_CREDENTIALS=C:\Users\Alex\Documents\NetBeansProjects\NLPTesting-50cc75ecc46e.json
  * set GOOGLE_APPLICATION_CREDENTIALS=/C/Users/Alex/Documents/NetBeansProjects/NLPTesting-50cc75ecc46e.json
+ * set GOOGLE_MAPS_API_KEY=xxx
  */
 public class NLMSomething {
     
@@ -38,16 +41,43 @@ public class NLMSomething {
         // Instantiates a client
         LanguageServiceClient language = LanguageServiceClient.create();
         // The text to analyze
-        String broadLocation = "South Australia";
-        String tweet = "I'm going for a walk to San Francisco, then I'll climb a mountain in Adelaide, then go to London";
+        System.out.println("----------");
+        String userProfileLocation = "South Australia";
+        System.out.println("Twitter user location (from their profile):\n  " + userProfileLocation);
+        
+        String tweet = "Pls avoid Fullarton & Glen Osmond Rd intersection, 20 ft boat has come off its trailer, restrictions & diversions in place";
+        
+        System.out.println("----------");
+        System.out.println("Twitter text:\n  " + tweet);
+        tweet = preProcessTweet(tweet);
+        System.out.println("----------");
+        System.out.println("Pre-processed Twitter text:\n  " + tweet);
         List<String> locationEntities = nlpSometext(tweet);
+        System.out.println("----------");
+        System.out.println("Location entities from Google NLP API:");
         for (String singleLocationEntity : locationEntities) {
-            System.out.println(singleLocationEntity);
+            System.out.println("  " + singleLocationEntity);
+        }
+        if (userProfileLocation != null) {
+            locationEntities.add(userProfileLocation);
         }
         System.out.println("----------");
+        System.out.println("List of combinations of the location entities set:");
         List<String> locationEntitiesCombos = comb(2, locationEntities);
         for (String singleLocationEntitySet : locationEntitiesCombos) {
-            System.out.println(singleLocationEntitySet);
+            
+            //String stringToGeocode = String.join(singleLocationEntitySet, ", ");
+            singleLocationEntitySet = singleLocationEntitySet.substring(0, singleLocationEntitySet.length() - 1);
+            singleLocationEntitySet = singleLocationEntitySet.substring(1, singleLocationEntitySet.length());
+            LatLng possiblePoint = geocode(singleLocationEntitySet);
+            String possiblePointString;
+            if (possiblePoint == null) {
+                possiblePointString = "Could not geocode";
+            } else  {
+                possiblePointString = possiblePoint.toString();
+            }
+            System.out.println("  " + singleLocationEntitySet);
+            System.out.println("    " + possiblePointString);
         }
     }
     
@@ -102,16 +132,18 @@ public class NLMSomething {
     }
     
     public static LatLng geocode(String textLocation) {
+        String apiKeyString = System.getenv("GOOGLE_MAPS_API_KEY");
         LatLng latLngResult;
         GeoApiContext context = new GeoApiContext.Builder()
-                .apiKey("AIzaSyDBB5x4IwpNgW15HrymfbTCIO20C_cXFBQ")
+                .apiKey(apiKeyString)
                 .build();
+        
         try {
             GeocodingResult[] results =  GeocodingApi.geocode(context, textLocation).await();
             latLngResult = results[0].geometry.location;
             Gson gson = new GsonBuilder().setPrettyPrinting().create();
-            System.out.println(gson.toJson(results[0].addressComponents));
-            System.out.println(latLngResult);
+            //System.out.println(gson.toJson(results[0].addressComponents));
+            //System.out.println(latLngResult);
             return latLngResult;
         } catch (Exception e) {
             System.out.println("Error");
@@ -129,7 +161,10 @@ public class NLMSomething {
     }
     
     static List<String> comb(int minSetSize, List<String> items) {
-    
+        int maxSetSize = 5;
+        if (items.size() > maxSetSize) {
+            return null;
+        }
         List<String> results = new ArrayList<String>();
 
         for (int k = minSetSize; k <= items.size(); k++) {
@@ -151,6 +186,30 @@ public class NLMSomething {
         }
         return innerResults;
     }
+    
+    static String preProcessTweet(String input) {
+        // Do some basic things to clean up the tweet.
+        // 1. Remove hyperlinks, they seem to mess up the NLP
+        // 2. Remove the hash symbol from hash tags
+        // 3. Insert spaces in hashtags if they use camel case or title case.
+        //      For example, #BestThingEver becomes Best Thing Ever.
+        
+        String result = removeUrl(input);
+        return result;
+    }
+    
+    static private String removeUrl(String commentstr) {
+        //https://stackoverflow.com/questions/12366496/removing-the-url-from-text-using-java
+        String urlPattern = "((https?|ftp|gopher|telnet|file|Unsure|http):((//)|(\\\\))+[\\w\\d:#@%/;$()~_?\\+-=\\\\\\.&]*)";
+        Pattern p = Pattern.compile(urlPattern,Pattern.CASE_INSENSITIVE);
+        Matcher m = p.matcher(commentstr);
+        int i = 0;
+        while (m.find()) {
+            commentstr = commentstr.replaceAll(m.group(i),"").trim();
+            i++;
+        }
+        return commentstr;
+    }
 }
 
 
@@ -158,4 +217,5 @@ public class NLMSomething {
 scene
 somewhere
 hotel
+intersection
 */
