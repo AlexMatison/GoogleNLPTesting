@@ -19,6 +19,7 @@ import com.google.gson.GsonBuilder;
 import com.google.maps.GeoApiContext;
 import com.google.maps.GeocodingApi;
 import com.google.maps.model.GeocodingResult;
+import com.google.maps.model.Geometry;
 import com.google.maps.model.LatLng;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -42,18 +43,22 @@ public class NLMSomething {
         LanguageServiceClient language = LanguageServiceClient.create();
         // The text to analyze
         System.out.println("----------");
-        String userProfileLocation = "South Australia";
+        String userProfileLocation = "Queensland";
         System.out.println("Twitter user location (from their profile):\n  " + userProfileLocation);
         
-        String tweet = "Pls avoid Fullarton & Glen Osmond Rd intersection, 20 ft boat has come off its trailer, restrictions & diversions in place";
+        String tweet = "Major Flood Warning for the Kolan River and Baffle Creek. Stay safe and keep up to date at http://www.bom.gov.au/qld/warnings/  #QldFlood";
         
         System.out.println("----------");
         System.out.println("Twitter text:\n  " + tweet);
         tweet = preProcessTweet(tweet);
         System.out.println("----------");
         System.out.println("Pre-processed Twitter text:\n  " + tweet);
+        //System.exit(0);
+        
         List<String> locationEntities = nlpSometext(tweet);
+        
         System.out.println("----------");
+        
         System.out.println("Location entities from Google NLP API:");
         for (String singleLocationEntity : locationEntities) {
             System.out.println("  " + singleLocationEntity);
@@ -65,10 +70,24 @@ public class NLMSomething {
         System.out.println("List of combinations of the location entities set:");
         List<String> locationEntitiesCombos = comb(2, locationEntities);
         for (String singleLocationEntitySet : locationEntitiesCombos) {
-            
-            //String stringToGeocode = String.join(singleLocationEntitySet, ", ");
+            // Remove the []'s.
             singleLocationEntitySet = singleLocationEntitySet.substring(0, singleLocationEntitySet.length() - 1);
             singleLocationEntitySet = singleLocationEntitySet.substring(1, singleLocationEntitySet.length());
+            
+            // Get geometry (as opposed to points).
+            /*
+            Geometry possibleGeometry = geocodeStringToGeometry(singleLocationEntitySet);
+            String formattedResult;
+            if (possibleGeometry == null) {
+                formattedResult = "Could not geocode.";
+            } else {
+                formattedResult = "box: " + possibleGeometry.bounds.toString() + " point: " + possibleGeometry.location.toString();
+            }
+            System.out.println("  " + singleLocationEntitySet);
+            System.out.println("    " + formattedResult);
+            */
+            
+            // Get points.
             LatLng possiblePoint = geocode(singleLocationEntitySet);
             String possiblePointString;
             if (possiblePoint == null) {
@@ -76,8 +95,10 @@ public class NLMSomething {
             } else  {
                 possiblePointString = possiblePoint.toString();
             }
+            
             System.out.println("  " + singleLocationEntitySet);
             System.out.println("    " + possiblePointString);
+
         }
     }
     
@@ -128,7 +149,13 @@ public class NLMSomething {
             //    System.out.printf("Type: %s\n\n", mention.getType());
             //}
         }
+        locations = removeDuplicateLocationEntities(locations);
         return locations;
+    }
+    
+    private static List<String> removeDuplicateLocationEntities(List<String> input) {
+        // Need to complete this
+        return input;
     }
     
     public static LatLng geocode(String textLocation) {
@@ -153,11 +180,26 @@ public class NLMSomething {
         //return true;
     }
     
-    
-    
-    String StripHash(String input) {
-        // Remove hash, split camel case into separate words.
-        return "nothing";
+    public static Geometry geocodeStringToGeometry(String textLocation) {
+        String apiKeyString = System.getenv("GOOGLE_MAPS_API_KEY");
+        Geometry result;
+        GeoApiContext context = new GeoApiContext.Builder()
+                .apiKey(apiKeyString)
+                .build();
+        
+        try {
+            GeocodingResult[] results =  GeocodingApi.geocode(context, textLocation).await();
+            result = results[0].geometry;
+            Gson gson = new GsonBuilder().setPrettyPrinting().create();
+            //System.out.println(gson.toJson(results[0].addressComponents));
+            //System.out.println(latLngResult);
+            return latLngResult;
+        } catch (Exception e) {
+            System.out.println("Error");
+            return null;
+        }
+        
+        //return true;
     }
     
     static List<String> comb(int minSetSize, List<String> items) {
@@ -195,21 +237,48 @@ public class NLMSomething {
         //      For example, #BestThingEver becomes Best Thing Ever.
         
         String result = removeUrl(input);
+        result = fixHashtags(result);
         return result;
     }
     
-    static private String removeUrl(String commentstr) {
+    static private String removeUrl(String input) {
         //https://stackoverflow.com/questions/12366496/removing-the-url-from-text-using-java
         String urlPattern = "((https?|ftp|gopher|telnet|file|Unsure|http):((//)|(\\\\))+[\\w\\d:#@%/;$()~_?\\+-=\\\\\\.&]*)";
         Pattern p = Pattern.compile(urlPattern,Pattern.CASE_INSENSITIVE);
-        Matcher m = p.matcher(commentstr);
+        Matcher m = p.matcher(input);
         int i = 0;
         while (m.find()) {
-            commentstr = commentstr.replaceAll(m.group(i),"").trim();
+            input = input.replaceAll(m.group(i),"").trim();
             i++;
         }
-        return commentstr;
+        return fixHashtags(input);
     }
+    
+    static private String fixHashtags(String input) {
+        String result = input;
+        Pattern hashRegex = Pattern.compile("#(\\S+)");
+        Matcher mat = hashRegex.matcher(input);
+        while (mat.find()) {
+            String fixed = fixCamelCase(mat.group(1));
+            result = result.replace(mat.group(0), fixed);
+        }
+        return result;
+    }
+    
+    static private String fixCamelCase(String input) {
+        //https://stackoverflow.com/questions/7593969/regex-to-split-camelcase-or-titlecase-advanced
+        String result = "";
+        for (String w : input.split("(?<!(^|[A-Z]))(?=[A-Z])|(?<!^)(?=[A-Z][a-z])")) {
+            result += w + " ";
+        }
+        result = result.trim();
+        return result;
+    }
+    
+    {
+    
+}   
+    
 }
 
 
